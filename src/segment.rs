@@ -55,13 +55,60 @@ impl Segmenter {
         let model = &self.model;
         let device = self.device.clone();
         let mut segments_queue = VecDeque::new();
+        let mut flushed = false;
+        let total_samples = samples.len();
 
         Ok(std::iter::from_fn(move || {
-            if let Some(start) = start_iter.next() {
+            // CRITICAL: `std::iter::from_fn` terminates as soon as the closure
+            // returns `None`. The previous implementation processed exactly ONE
+            // window per call and returned `pop_front()` directly — so the very
+            // first window that produced no completed segment (e.g. a meeting
+            // that opens with quiet audio the model reads as silence) returned
+            // `None` and KILLED the iterator before any later window ran. That is
+            // why a 35-min file with a quiet intro yielded ZERO segments. We must
+            // keep pulling windows inside a loop until we either have a buffered
+            // segment to emit or the windows are genuinely exhausted (then flush).
+            loop {
+                if let Some(seg) = segments_queue.pop_front() {
+                    return Some(Ok(seg));
+                }
+
+                let Some(start) = start_iter.next() else {
+                    // End-of-stream flush: windows exhausted. If speech was still
+                    // active (no trailing silence transition), emit the pending
+                    // final segment exactly once. Without this, a file that ends
+                    // mid-speech (a whole meeting with no trailing silence) loses
+                    // its final segment.
+                    if !flushed && is_speeching {
+                        flushed = true;
+                        let start = start_offset / sample_rate as f64;
+                        let end = offset as f64 / sample_rate as f64;
+
+                        let start_idx =
+                            (start_offset as usize).min(total_samples.saturating_sub(1));
+                        let end_idx = offset.min(total_samples);
+                        let (start_idx, end_idx) = if start_idx < end_idx {
+                            (start_idx, end_idx)
+                        } else {
+                            (start_idx, total_samples)
+                        };
+
+                        let segment_samples =
+                            &padded_samples[start_idx..end_idx.min(padded_samples.len())];
+                        is_speeching = false;
+                        return Some(Ok(Segment {
+                            start,
+                            end,
+                            samples: segment_samples.to_vec(),
+                        }));
+                    }
+                    return None;
+                };
+
                 let end = (start + window_size).min(padded_samples.len());
                 let window = &padded_samples[start..end];
 
-                let window_f32: Vec<f32> = window.iter().map(|&x| x as f32).collect();
+                let window_f32: Vec<f32> = window.iter().map(|&x| x as f32 / 32768.0).collect();
 
                 let data = TensorData::new(window_f32, [1, 1, window.len()]);
                 let input = Tensor::<BurnBackend, 3>::from_data(data, &device);
@@ -132,8 +179,8 @@ impl Segmenter {
                         offset += frame_size;
                     }
                 }
+                // Loop back: emit any segment just queued, else process next window.
             }
-            segments_queue.pop_front().map(Ok)
         }))
     }
 

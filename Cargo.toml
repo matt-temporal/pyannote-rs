@@ -14,6 +14,10 @@ exclude = [
 [lib]
 name = "pyannote_rs"
 
+# Used only by the offline `tune` example for spectral clustering experiments.
+[dev-dependencies]
+nalgebra = "0.33"
+
 [dependencies]
 anyhow = "1"
 hound = "3.5.1"
