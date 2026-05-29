@@ -1,4 +1,5 @@
 // Generated from ONNX "segmentation-3.0.onnx" by burn-import
+use crate::burn_facade as burn;
 use burn::prelude::*;
 use burn::nn::BiLstm;
 use burn::nn::BiLstmConfig;

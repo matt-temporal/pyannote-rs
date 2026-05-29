@@ -1,4 +1,5 @@
 // Generated from ONNX "wespeaker_final.onnx" by burn-import
+use crate::burn_facade as burn;
 use burn::prelude::*;
 use burn::nn::BatchNorm;
 use burn::nn::BatchNormConfig;

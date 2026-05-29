@@ -20,12 +20,42 @@ hound = "3.5.1"
 kaldi-native-fbank = "0.1.0"
 ndarray = "0.17"
 
-burn = { version = "~0.20", features = ["ndarray"] }
-burn-store = { version = "~0.20", features = ["burnpack"] }
+# `default-features = false` drops burn's `dataset` feature, which would
+# otherwise pull in rusqlite -> libsqlite3-sys and conflict with a downstream
+# crate (e.g. Meetily's sqlx). We only need core tensor ops + the ndarray
+# backend here. `std` is required for file-based model loading.
+# IMPORTANT: we depend on burn's SUB-CRATES directly rather than the `burn`
+# umbrella crate. The umbrella declares `burn-cpu` / `burn-wgpu` as optional
+# deps; under a `links` conflict (e.g. with ffmpeg-sidecar's lzma-sys in a
+# downstream consumer) cargo's resolver can spuriously activate `burn-cpu`,
+# which drags in `cubecl-cpu -> liblzma` and fails to resolve. Depending on the
+# leaf crates removes those optional deps as candidates entirely. A small
+# `burn` facade module (src/burn_facade.rs) re-exports them under the `burn::`
+# paths the generated model code expects.
+burn-core = { version = "=0.20.1", default-features = false, features = ["std"] }
+burn-tensor = { version = "=0.20.1", default-features = false, features = ["std"] }
+burn-nn = { version = "=0.20.1", default-features = false, features = ["std"] }
+burn-ndarray = { version = "=0.20.1", default-features = false, features = ["std"] }
+burn-store = { version = "=0.20.1", default-features = false, features = ["std", "burnpack"] }
 # burn-import = "~0.20"
+
+# WGPU/Metal backend, gated by the `wgpu` feature, macOS only. Default features
+# OFF to keep the CubeCL surface minimal (just the Metal MSL compiler path).
+[target.'cfg(target_os = "macos")'.dependencies]
+burn-wgpu = { version = "=0.20.1", default-features = false, features = ["metal", "std"], optional = true }
 
 [features]
 default = []
+# Enable GPU inference via the WGPU backend. On macOS the `src/nn/mod.rs`
+# backend alias switches to WGPU (which maps to Metal) when this feature is on;
+# on other platforms it stays on the CPU NdArray backend regardless.
+#
+# We enable burn's `metal` feature (WGPU backend + the Metal Shading Language
+# compiler path, `cubecl-msl`) rather than the generic `wgpu` feature. This
+# pins the GPU path to Metal on Apple platforms and avoids dragging in the
+# CubeCL CPU backend (which links liblzma and conflicts with ffmpeg-sidecar in
+# downstream consumers).
+wgpu = ["dep:burn-wgpu"]
 
 [profile.release]
 opt-level = 3

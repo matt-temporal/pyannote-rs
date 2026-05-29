@@ -1,3 +1,4 @@
+use crate::burn_facade as burn;
 use crate::nn::{self, BurnBackend, BurnDevice};
 use anyhow::{Context, Result, anyhow, bail};
 use burn::tensor::{Tensor, TensorData};

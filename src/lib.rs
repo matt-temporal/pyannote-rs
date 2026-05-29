@@ -1,3 +1,6 @@
+// `burn` facade assembled from leaf sub-crates (see burn_facade.rs for why).
+pub(crate) mod burn_facade;
+
 mod nn;
 
 mod embedding;
